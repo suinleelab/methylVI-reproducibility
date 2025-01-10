@@ -34,6 +34,15 @@ long as they have sufficient memory (~2GB).
 
 ## Reproducibility guide
 
+See `notebooks` folder for Jupyter notebooks to reproduce individual figures. Within the notebooks
+can be found additional information on what datasets must be downloaded/what experiment scripts must
+be run to produce the figure.
+
+Due to dependency conflicts between [ALLCools](https://lhqing.github.io/ALLCools/intro.html),
+a Python package used to preprocess scBS-seq data in the ALLC file format, and scvi-tools,
+separate Python environments are required for downloading data vs running experiments. Instructions for
+setting up these environments can be found below.
+
 ### Downloading the data
 
 1. Git clone this repository.
@@ -53,7 +62,6 @@ long as they have sufficient memory (~2GB).
     conda activate methyl-vi-env
     ```
 3. Navigate to the `experiment_scripts` directory and run corresponding Python scripts for training models.
-4. Navigate to the `notebooks` directory to reproduce results for a given figure in the manuscript.
 
 ## References
 
