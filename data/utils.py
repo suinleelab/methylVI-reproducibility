@@ -1,12 +1,13 @@
-import requests
 import os
-import pandas as pd
 import re
+from collections import defaultdict
+
+import biomart
+import pandas as pd
+import requests
 import scanpy as sc
 from ALLCools.clustering import log_scale
-import numpy as np
-import biomart
-from collections import defaultdict
+
 
 def download_binary_file(
     file_url: str, output_path: str, overwrite: bool = False

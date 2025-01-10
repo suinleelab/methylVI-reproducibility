@@ -1,17 +1,13 @@
 import os
-import shutil
-import tarfile
 
 import GEOparse
 import pandas as pd
-from ALLCools.count_matrix.dataset import generate_dataset
 from ALLCools.mcds import MCDS
 from ALLCools.utilities import standardize_allc
-import pandas as pd
-import scanpy as sc
-from tqdm import tqdm
-from utils import download_binary_file, make_obs_df_var_df, mcds_to_anndata
 from mudata import MuData
+from tqdm import tqdm
+
+from utils import download_binary_file, mcds_to_anndata
 
 destdir = "/data/Chien2023/data"
 os.makedirs(destdir, exist_ok=True)
@@ -172,87 +168,69 @@ biomart_dict = get_hs_ensembl_mappings()
 
 # Read in generated MCDS files
 obs_dim = "cell"
-for var_dim in ["gene", "promoter"]:
-    num_features = 2500
-    mcds = MCDS.open(
-        mcds_paths, obs_dim=obs_dim, var_dim=var_dim, use_obs=metadata.index
-    )
+var_dim = "gene"
+num_features = 2500
+mcds = MCDS.open(
+    mcds_paths, obs_dim=obs_dim, var_dim=var_dim, use_obs=metadata.index
+)
 
-    mcds.add_feature_cov_mean(var_dim=var_dim)
+mcds.add_feature_cov_mean(var_dim=var_dim)
+min_cov = 100
+mcds = mcds.filter_feature_by_cov_mean(
+    min_cov=min_cov
+)
 
-    # Filter by coverage - based on the distribution above
-    if var_dim == "chrom100k":
-        min_cov = 100
-        mcds = mcds.filter_feature_by_cov_mean(
-            min_cov=min_cov,
-        )
-    elif var_dim == "gene":
-        min_cov = 100
-        mcds = mcds.filter_feature_by_cov_mean(
-            min_cov=min_cov
-        )
+blacklist_file_url = (
+    "https://github.com/Boyle-Lab/Blacklist/raw/master/lists/hg38-blacklist.v2.bed.gz"
+)
+download_binary_file(
+    file_url=blacklist_file_url,
+    output_path=os.path.join("/data", "Chien2023", blacklist_file_url.split("/")[-1]),
+)
 
-    blacklist_file_url = (
-        "https://github.com/Boyle-Lab/Blacklist/raw/master/lists/hg38-blacklist.v2.bed.gz"
-    )
-    download_binary_file(
-        file_url=blacklist_file_url,
-        output_path=os.path.join("/data", "Chien2023", blacklist_file_url.split("/")[-1]),
-    )
+# Features having overlap > f with any black list region will be removed.
+black_list_fraction = 0.2
+mcds = mcds.remove_black_list_region(
+    black_list_path=os.path.join("/data", "Chien2023", blacklist_file_url.split("/")[-1]),
+    f=black_list_fraction,
+)
 
-    # Features having overlap > f with any black list region will be removed.
-    black_list_fraction = 0.2
-    mcds = mcds.remove_black_list_region(
-        black_list_path=os.path.join("/data", "Chien2023", blacklist_file_url.split("/")[-1]),
-        f=black_list_fraction,
-    )
+# remove problematic chromosomes
+exclude_chromosome = ["chrM", "chrY", "chrX"]
+mcds = mcds.remove_chromosome(exclude_chromosome)
 
-    # remove problematic chromosomes
-    exclude_chromosome = ["chrM", "chrY", "chrX"]
-    mcds = mcds.remove_chromosome(exclude_chromosome)
+mcds.add_mc_frac(
+    normalize_per_cell=True,  # after calculating mC frac, per cell normalize the matrix
+    clip_norm_value=10,  # clip outlier values above 10 to 10
+)
 
-    mcds.add_mc_frac(
-        normalize_per_cell=True,  # after calculating mC frac, per cell normalize the matrix
-        clip_norm_value=10,  # clip outlier values above 10 to 10
-    )
-
-    # Select highly variable features
-    mch_pattern = "CHN"
-    mcg_pattern = "CGN"
+# Select highly variable features
+mch_pattern = "CHN"
+mcg_pattern = "CGN"
 
 
-    if num_features != "all":
-        mch_hvf = mcds.calculate_hvf_svr(
-            var_dim=var_dim, mc_type=mch_pattern, n_top_feature=num_features, plot=False
-        )
+mch_hvf = mcds.calculate_hvf_svr(
+    var_dim=var_dim, mc_type=mch_pattern, n_top_feature=num_features, plot=False
+)
 
-        mcg_hvf = mcds.calculate_hvf_svr(
-            var_dim=var_dim, mc_type=mcg_pattern, n_top_feature=num_features, plot=False
-        )
+mcg_hvf = mcds.calculate_hvf_svr(
+    var_dim=var_dim, mc_type=mcg_pattern, n_top_feature=num_features, plot=False
+)
 
-        mcg_adata = mcds_to_anndata(
-            mcds, mcg_pattern, var_dim=var_dim, obs_dim=obs_dim, metadata=metadata, subset_features=True
-        )
+mcg_adata = mcds_to_anndata(
+    mcds, mcg_pattern, var_dim=var_dim, obs_dim=obs_dim, metadata=metadata, subset_features=True
+)
 
-        mch_adata = mcds_to_anndata(
-            mcds, mch_pattern, var_dim=var_dim, obs_dim=obs_dim, metadata=metadata, subset_features=True
-        )
+mch_adata = mcds_to_anndata(
+    mcds, mch_pattern, var_dim=var_dim, obs_dim=obs_dim, metadata=metadata, subset_features=True
+)
 
-    else:
-        mcg_adata = mcds_to_anndata(
-            mcds, mcg_pattern, var_dim=var_dim, obs_dim=obs_dim, metadata=metadata, subset_features=False
-        )
+mcg_adata.var_names = [x + "_mCG" for x in mcg_adata.var_names]
+mch_adata.var_names = [x + "_mCH" for x in mch_adata.var_names]
 
-        mch_adata = mcds_to_anndata(
-            mcds, mch_pattern, var_dim=var_dim, obs_dim=obs_dim, metadata=metadata, subset_features=False
-        )
+mdata = MuData({"mCG": mcg_adata, "mCH": mch_adata})
+mdata = mdata[mdata.obs['mCH:level1'].notnull()]
 
-    mcg_adata.var_names = [x + "_mCG" for x in mcg_adata.var_names]
-    mch_adata.var_names = [x + "_mCH" for x in mch_adata.var_names]
-
-    mdata = MuData({"mCG": mcg_adata, "mCH": mch_adata})
-    mdata = mdata[mdata.obs['mCH:level1'].notnull()]
-
-    mdata.write_h5mu(
-        os.path.join(mudata_path, f"{var_dim}_{num_features}_features.h5mu")
-    )
+mdata.write_h5mu(
+    os.path.join(mudata_path, f"{var_dim}_{num_features}_features.h5mu")
+)

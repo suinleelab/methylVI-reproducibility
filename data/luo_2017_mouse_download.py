@@ -4,13 +4,11 @@ import tarfile
 
 import GEOparse
 import pandas as pd
-from ALLCools.count_matrix.dataset import generate_dataset
 from ALLCools.mcds import MCDS
 from ALLCools.utilities import standardize_allc
-import scanpy as sc
-from tqdm import tqdm
-from utils import download_binary_file, make_obs_df_var_df, mcds_to_anndata
 from mudata import MuData
+
+from utils import download_binary_file, mcds_to_anndata
 
 destdir = "/projects/leelab2/metVI/Luo2017_Mouse/data"
 os.makedirs(destdir, exist_ok=True)
@@ -188,91 +186,74 @@ else:
     )
 
 # Read in generated MCDS file
-for var_dim in ["chrom100k", "gene"]:
-    num_features = 2500
-    obs_dim = "cell"
-    mcds = MCDS.open(mcds_output_path, obs_dim=obs_dim, var_dim=var_dim)
+var_dim = "gene"
+num_features = 2500
+obs_dim = "cell"
+mcds = MCDS.open(mcds_output_path, obs_dim=obs_dim, var_dim=var_dim)
 
-    mcds.add_feature_cov_mean(var_dim=var_dim)
+mcds.add_feature_cov_mean(var_dim=var_dim)
 
-    if var_dim == "chrom100k":
-        min_cov = 100
+min_cov = 100
+mcds = mcds.filter_feature_by_cov_mean(
+    min_cov=min_cov,
+)
 
-        mcds = mcds.filter_feature_by_cov_mean(
-            min_cov=min_cov,
-        )
-    elif var_dim == "gene":
-        min_cov = 100
+# Remove blacklist regions for mice. These regions are known to have data quality issues
+# and will be removed from further analysis.
+blacklist_file_url = "https://github.com/Boyle-Lab/Blacklist/raw/master/lists/mm10-blacklist.v2.bed.gz"
+download_binary_file(
+    file_url=blacklist_file_url,
+    output_path=os.path.join(destdir, blacklist_file_url.split("/")[-1]),
+)
 
-        mcds = mcds.filter_feature_by_cov_mean(
-            min_cov=min_cov,
-        )
+# Features having overlap > f with any black list region will be removed.
+black_list_fraction = 0.2
+mcds = mcds.remove_black_list_region(
+    black_list_path=os.path.join(destdir, blacklist_file_url.split("/")[-1]),
+    f=black_list_fraction,
+)
 
-    # Remove blacklist regions for mice. These regions are known to have data quality issues
-    # and will be removed from further analysis.
-    blacklist_file_url = "https://github.com/Boyle-Lab/Blacklist/raw/master/lists/mm10-blacklist.v2.bed.gz"
-    download_binary_file(
-        file_url=blacklist_file_url,
-        output_path=os.path.join(destdir, blacklist_file_url.split("/")[-1]),
-    )
+# Remove problematic chromosomes
+exclude_chromosome = ["chrM", "chrY"]
+mcds = mcds.remove_chromosome(exclude_chromosome)
 
-    # Features having overlap > f with any black list region will be removed.
-    black_list_fraction = 0.2
-    mcds = mcds.remove_black_list_region(
-        black_list_path=os.path.join(destdir, blacklist_file_url.split("/")[-1]),
-        f=black_list_fraction,
-    )
+mcds.add_mc_frac(
+    normalize_per_cell=True,
+    clip_norm_value=10,
+)
 
-    # Remove problematic chromosomes
-    exclude_chromosome = ["chrM", "chrY"]
-    mcds = mcds.remove_chromosome(exclude_chromosome)
+# load only the mC fraction matrix into memory so following steps is faster
+# Only load into memory when your memory size is enough to handle your dataset
+if mcds.get_index(obs_dim).size < 20000:
+    mcds[f"{var_dim}_da_frac"].load()
 
-    mcds.add_mc_frac(
-        normalize_per_cell=True,
-        clip_norm_value=10,
-    )
+# Select highly variable features
+mch_pattern = "CHN"
+mcg_pattern = "CGN"
 
-    # load only the mC fraction matrix into memory so following steps is faster
-    # Only load into memory when your memory size is enough to handle your dataset
-    if mcds.get_index(obs_dim).size < 20000:
-        mcds[f"{var_dim}_da_frac"].load()
+mch_hvf = mcds.calculate_hvf_svr(
+    var_dim=var_dim, mc_type=mch_pattern, n_top_feature=num_features, plot=False
+)
 
-    # Select highly variable features
-    mch_pattern = "CHN"
-    mcg_pattern = "CGN"
+mcg_hvf = mcds.calculate_hvf_svr(
+    var_dim=var_dim, mc_type=mcg_pattern, n_top_feature=num_features, plot=False
+)
 
-    if num_features != "all":
-        mch_hvf = mcds.calculate_hvf_svr(
-            var_dim=var_dim, mc_type=mch_pattern, n_top_feature=num_features, plot=False
-        )
+mcg_adata = mcds_to_anndata(
+    mcds, mcg_pattern, var_dim=var_dim, obs_dim=obs_dim, metadata=metadata, subset_features=True
+)
 
-        mcg_hvf = mcds.calculate_hvf_svr(
-            var_dim=var_dim, mc_type=mcg_pattern, n_top_feature=num_features, plot=False
-        )
+mch_adata = mcds_to_anndata(
+    mcds, mch_pattern, var_dim=var_dim, obs_dim=obs_dim, metadata=metadata, subset_features=True
+)
 
-        mcg_adata = mcds_to_anndata(
-            mcds, mcg_pattern, var_dim=var_dim, obs_dim=obs_dim, metadata=metadata, subset_features=True
-        )
+mcg_adata.obs["FACS date"] = mcg_adata.obs["FACS date"].astype(str)
+mcg_adata.var_names = [x + "_mCG" for x in mcg_adata.var_names]
 
-        mch_adata = mcds_to_anndata(
-            mcds, mch_pattern, var_dim=var_dim, obs_dim=obs_dim, metadata=metadata, subset_features=True
-        )
-    else:
-        mcg_adata = mcds_to_anndata(
-            mcds, mcg_pattern, var_dim=var_dim, obs_dim=obs_dim, metadata=metadata, subset_features=False
-        )
+mch_adata.obs["FACS date"] = mch_adata.obs["FACS date"].astype(str)
+mch_adata.var_names = [x + "_mCH" for x in mch_adata.var_names]
 
-        mch_adata = mcds_to_anndata(
-            mcds, mch_pattern, var_dim=var_dim, obs_dim=obs_dim, metadata=metadata, subset_features=False
-        )
-
-    mcg_adata.obs["FACS date"] = mcg_adata.obs["FACS date"].astype(str)
-    mcg_adata.var_names = [x + "_mCG" for x in mcg_adata.var_names]
-
-    mch_adata.obs["FACS date"] = mch_adata.obs["FACS date"].astype(str)
-    mch_adata.var_names = [x + "_mCH" for x in mch_adata.var_names]
-
-    mdata = MuData({"mCG": mcg_adata, "mCH": mch_adata})
-    mdata.write_h5mu(
-        os.path.join(destdir, f"{var_dim}_{num_features}_features.h5mu")
-    )
+mdata = MuData({"mCG": mcg_adata, "mCH": mch_adata})
+mdata.write_h5mu(
+    os.path.join(destdir, f"{var_dim}_{num_features}_features.h5mu")
+)

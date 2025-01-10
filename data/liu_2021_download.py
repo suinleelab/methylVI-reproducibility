@@ -77,79 +77,79 @@ for path in mcds_paths:
 # This corresponding to AnnData .obs and .var
 obs_dim = "cell"  # observation
 
-for var_dim in ["chrom100k", "gene"]:
-    mcds = MCDS.open(
-        mcds_paths, obs_dim=obs_dim, var_dim=var_dim, use_obs=region_metadata.index
+var_dim = "gene"
+mcds = MCDS.open(
+    mcds_paths, obs_dim=obs_dim, var_dim=var_dim, use_obs=region_metadata.index
+)
+
+mcds.add_feature_cov_mean(var_dim=var_dim)
+
+blacklist_file_url = (
+    "https://github.com/Boyle-Lab/Blacklist/raw/master/lists/mm10-blacklist.v2.bed.gz"
+)
+download_binary_file(
+    file_url=blacklist_file_url,
+    output_path=os.path.join(data_path, blacklist_file_url.split("/")[-1]),
+)
+
+exclude_chromosome = ["chrM", "chrY"]
+
+# filter by coverage - based on the distribution above
+min_cov = 100
+if var_dim == "chrom100k":
+    mcds = mcds.filter_feature_by_cov_mean(
+        min_cov=min_cov,
+    )
+elif var_dim == "gene":
+    mcds = mcds.filter_feature_by_cov_mean(
+        min_cov=min_cov,
     )
 
-    mcds.add_feature_cov_mean(var_dim=var_dim)
+# Features having overlap > f with any black list region will be removed.
+black_list_fraction = 0.2
+mcds = mcds.remove_black_list_region(
+    black_list_path=os.path.join(data_path, blacklist_file_url.split("/")[-1]),
+    f=black_list_fraction,
+)
 
-    blacklist_file_url = (
-        "https://github.com/Boyle-Lab/Blacklist/raw/master/lists/mm10-blacklist.v2.bed.gz"
-    )
-    download_binary_file(
-        file_url=blacklist_file_url,
-        output_path=os.path.join(data_path, blacklist_file_url.split("/")[-1]),
-    )
+# remove chromosomes
+mcds = mcds.remove_chromosome(exclude_chromosome)
 
-    exclude_chromosome = ["chrM", "chrY"]
+mcds.add_mc_frac(
+    normalize_per_cell=True,  # after calculating mC frac, per cell normalize the matrix
+    clip_norm_value=10,  # clip outlier values above 10 to 10
+)
 
-    # filter by coverage - based on the distribution above
-    min_cov = 100
-    if var_dim == "chrom100k":
-        mcds = mcds.filter_feature_by_cov_mean(
-            min_cov=min_cov,
-        )
-    elif var_dim == "gene":
-        mcds = mcds.filter_feature_by_cov_mean(
-            min_cov=min_cov,
-        )
+# load only the mC fraction matrix into memory so following steps is faster
+# Only load into memory when your memory size is enough to handle your dataset
+if mcds.get_index(obs_dim).size < 20000:
+    mcds[f"{var_dim}_da_frac"].load()
 
-    # Features having overlap > f with any black list region will be removed.
-    black_list_fraction = 0.2
-    mcds = mcds.remove_black_list_region(
-        black_list_path=os.path.join(data_path, blacklist_file_url.split("/")[-1]),
-        f=black_list_fraction,
-    )
+# HVF
+mch_pattern = "CHN"
+mcg_pattern = "CGN"
+n_top_feature = 2500
 
-    # remove chromosomes
-    mcds = mcds.remove_chromosome(exclude_chromosome)
+# PC cutoff
+pc_cutoff = 0.1
 
-    mcds.add_mc_frac(
-        normalize_per_cell=True,  # after calculating mC frac, per cell normalize the matrix
-        clip_norm_value=10,  # clip outlier values above 10 to 10
-    )
+mch_hvf = mcds.calculate_hvf_svr(
+    var_dim=var_dim, mc_type=mch_pattern, n_top_feature=n_top_feature, plot=False
+)
 
-    # load only the mC fraction matrix into memory so following steps is faster
-    # Only load into memory when your memory size is enough to handle your dataset
-    if mcds.get_index(obs_dim).size < 20000:
-        mcds[f"{var_dim}_da_frac"].load()
+mcg_hvf = mcds.calculate_hvf_svr(
+    var_dim=var_dim, mc_type=mcg_pattern, n_top_feature=n_top_feature, plot=False
+)
 
-    # HVF
-    mch_pattern = "CHN"
-    mcg_pattern = "CGN"
-    n_top_feature = 2500
+mcg_adata = mcds_to_anndata(
+    mcds, "CGN", var_dim=var_dim, obs_dim=obs_dim, metadata=metadata, subset_features=True
+)
 
-    # PC cutoff
-    pc_cutoff = 0.1
+mch_adata = mcds_to_anndata(
+    mcds, "CHN", var_dim=var_dim, obs_dim=obs_dim, metadata=metadata, subset_features=True
+)
 
-    mch_hvf = mcds.calculate_hvf_svr(
-        var_dim=var_dim, mc_type=mch_pattern, n_top_feature=n_top_feature, plot=False
-    )
-
-    mcg_hvf = mcds.calculate_hvf_svr(
-        var_dim=var_dim, mc_type=mcg_pattern, n_top_feature=n_top_feature, plot=False
-    )
-
-    mcg_adata = mcds_to_anndata(
-        mcds, "CGN", var_dim=var_dim, obs_dim=obs_dim, metadata=metadata, subset_features=True
-    )
-
-    mch_adata = mcds_to_anndata(
-        mcds, "CHN", var_dim=var_dim, obs_dim=obs_dim, metadata=metadata, subset_features=True
-    )
-
-    mdata = MuData({"mCG": mcg_adata, "mCH": mch_adata})
-    mdata.write_h5mu(
-        os.path.join(data_path, f"{var_dim}_{n_top_feature}_features.h5mu")
-    )
+mdata = MuData({"mCG": mcg_adata, "mCH": mch_adata})
+mdata.write_h5mu(
+    os.path.join(data_path, f"{var_dim}_{n_top_feature}_features.h5mu")
+)
