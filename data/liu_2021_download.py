@@ -19,10 +19,6 @@ parser.add_argument(
     ],
 )
 
-parser.add_argument(
-    "--subregion",
-)
-
 args = parser.parse_args()
 print(f"Running {sys.argv[0]} with arguments")
 for arg in vars(args):
@@ -34,11 +30,7 @@ subregion = args.subregion
 
 hdf5_path = "/projects/leelab2/metVI/Liu2021/data"
 os.makedirs(hdf5_path, exist_ok=True)
-
-if subregion is not None:
-    data_path = f"/projects/leelab2/metVI/Liu2021_{region}_{subregion}/data"
-else:
-    data_path = f"/projects/leelab2/metVI/Liu2021_{region}/data"
+data_path = f"/projects/leelab2/metVI/Liu2021_{region}/data"
 
 os.makedirs(data_path, exist_ok=True)
 

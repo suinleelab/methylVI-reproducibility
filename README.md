@@ -22,7 +22,7 @@ Google Colab notebooks demonstrating its use are available in the package's acco
 * And more! MethylVI easily integrates with other scvi-tools/scverse models, and we're excited to see what other use cases emerge.
 
 ## System requirements
-This software was designed and tested on a machine running CentOS 7.8.2003, with Python 3.10.13,
+This software was designed and tested on a machine running Rocky Linux 9.5, with Python 3.10.13,
 PyTorch 1.13.1, and CUDA 12.4. For a full list of all external Python package dependences used in this project,
 see the Conda environment files `methyl-vi-environment.yml` and `allcools-environment.yml`.
 
@@ -33,6 +33,27 @@ to train/evaluate models. Our experiments were conducted using an NVIDIA RTX 208
 long as they have sufficient memory (~2GB).
 
 ## Reproducibility guide
+
+### Downloading the data
+
+1. Git clone this repository.
+2. Create and activate the ALLCools conda environment via
+    ```
+    conda env create -f allcools-environment.yml
+    conda activate allcools-env
+    ```
+3. Navigate to the `data` directory and run the corresponding Python script for a given dataset.
+
+### Running experiments
+
+1. Git clone this repository.
+2. Create and activate the MethylVI conda environment via
+    ```
+    conda env create -f methyl-vi-environment.yml
+    conda activate methyl-vi-env
+    ```
+3. Navigate to the `experiment_scripts` directory and run corresponding Python scripts for training models.
+4. Navigate to the `notebooks` directory to reproduce results for a given figure in the manuscript.
 
 ## References
 
